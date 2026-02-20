@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Image as ImageIcon, Phone, X, Bot, User, Loader2, Copy, Check, Trash2, MessageSquare, Plus } from 'lucide-react';
-import { GoogleGenAI } from '@google/genai';
+import { Send, Image as ImageIcon, Bot, Loader2, Trash2, MessageSquare, Plus } from 'lucide-react';
+import { GoogleGenAI } from '@google/generative-ai';
 import ReactMarkdown from 'react-markdown';
 import { getTranslation } from '../translations';
 import { User as UserType } from '../types';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+// Inizializzazione corretta della libreria Google AI
+const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY || '');
 
 type Part = { text?: string; inlineData?: { mimeType: string; data: string } };
 type Message = { role: 'user' | 'model'; parts: Part[] };
@@ -19,7 +20,7 @@ interface NSAssistantProps {
 export default function NSAssistant({ currentUser, language }: NSAssistantProps) {
   const storageKey = `ns_chat_history_${currentUser.username.toLowerCase()}`;
   const sessionsKey = `ns_chat_sessions_${currentUser.username.toLowerCase()}`;
-  const t = (key: any) => getTranslation(language, key);
+  const t = (key: string) => getTranslation(language, key);
 
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
     const saved = localStorage.getItem(sessionsKey);
@@ -29,11 +30,7 @@ export default function NSAssistant({ currentUser, language }: NSAssistantProps)
   const [messages, setMessages] = useState<Message[]>(() => {
     const saved = localStorage.getItem(storageKey);
     if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error("Failed to parse chat history", e);
-      }
+      try { return JSON.parse(saved); } catch (e) { console.error(e); }
     }
     return [{ role: 'model', parts: [{ text: t('assistant_initial') }] }];
   });
@@ -41,7 +38,6 @@ export default function NSAssistant({ currentUser, language }: NSAssistantProps)
   const [inputText, setInputText] = useState('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [copiedId, setCopiedId] = useState<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -57,12 +53,6 @@ export default function NSAssistant({ currentUser, language }: NSAssistantProps)
     localStorage.setItem(sessionsKey, JSON.stringify(sessions));
   }, [messages, sessions, isLoading, storageKey, sessionsKey]);
 
-  useEffect(() => {
-    if (messages.length === 1 && messages[0].role === 'model') {
-      setMessages([{ role: 'model', parts: [{ text: t('assistant_initial') }] }]);
-    }
-  }, [language]);
-
   const handleNewChat = () => {
     setMessages([{ role: 'model', parts: [{ text: t('assistant_initial') }] }]);
     setShowHistory(false);
@@ -73,12 +63,6 @@ export default function NSAssistant({ currentUser, language }: NSAssistantProps)
       setMessages([{ role: 'model', parts: [{ text: t('assistant_initial') }] }]);
       localStorage.removeItem(storageKey);
     }
-  };
-
-  const handleCopy = (text: string, id: number) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
   };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -112,28 +96,29 @@ export default function NSAssistant({ currentUser, language }: NSAssistantProps)
     setIsLoading(true);
 
     try {
-      const genModel = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
       const contents = updatedMessages.map(msg => ({
         role: msg.role === 'user' ? 'user' : 'model',
         parts: msg.parts
       }));
 
-      const result = await genModel.generateContent({
+      const result = await model.generateContent({
         contents,
-        systemInstruction: "Sei NS, un assistente scolastico gentile. Rispondi in modo chiaro e incoraggiante."
+        systemInstruction: "Sei NS, un assistente scolastico cordiale. Aiuta gli studenti con i compiti spiegando i passaggi."
       });
 
       const responseText = result.response.text();
       setMessages([...updatedMessages, { role: 'model', parts: [{ text: responseText }] }]);
     } catch (error) {
-      setMessages([...updatedMessages, { role: 'model', parts: [{ text: "Errore di connessione." }] }]);
+      setMessages([...updatedMessages, { role: 'model', parts: [{ text: "Errore durante la generazione della risposta." }] }]);
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)] bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden relative max-w-5xl mx-auto transition-colors">
+    <div className="flex flex-col h-[calc(100vh-8rem)] bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden relative max-w-5xl mx-auto">
+      {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm z-10">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900/50 rounded-full flex items-center justify-center text-indigo-600 dark:text-indigo-400">
@@ -153,6 +138,7 @@ export default function NSAssistant({ currentUser, language }: NSAssistantProps)
         </div>
       </div>
 
+      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
         {messages.map((msg, idx) => (
           <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -170,6 +156,7 @@ export default function NSAssistant({ currentUser, language }: NSAssistantProps)
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Input */}
       <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
         <div className="flex items-center gap-2">
           <input type="file" ref={fileInputRef} onChange={handleImageSelect} accept="image/*" className="hidden" />
@@ -179,7 +166,7 @@ export default function NSAssistant({ currentUser, language }: NSAssistantProps)
             onChange={(e) => setInputText(e.target.value)} 
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
             placeholder={t('assistant_placeholder')}
-            className="flex-1 bg-slate-100 dark:bg-slate-800 border-none rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+            className="flex-1 bg-slate-100 dark:bg-slate-800 border-none rounded-xl px-4 py-2 outline-none"
           />
           <button onClick={handleSend} className="p-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors"><Send size={24} /></button>
         </div>
